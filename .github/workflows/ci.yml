@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  rust-checks:
+    name: Rust fmt + clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          components: rustfmt, clippy
+      - name: Format check
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+  ios-build:
+    name: iOS XCFramework + Swift bindings
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Add iOS targets
+        run: |
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+      - name: Build sprout-mobile for iOS targets
+        run: |
+          cargo build --release --target aarch64-apple-ios
+          cargo build --release --target aarch64-apple-ios-sim
+          cargo build --release --target x86_64-apple-ios
+      - name: Create universal simulator lib
+        run: |
+          mkdir -p target/ios-sim-universal/release
+          lipo -create \
+            target/aarch64-apple-ios-sim/release/libsprout_mobile.a \
+            target/x86_64-apple-ios/release/libsprout_mobile.a \
+            -output target/ios-sim-universal/release/libsprout_mobile.a
+      - name: Build XCFramework
+        run: |
+          rm -rf ios/Frameworks/SproutCore.xcframework
+          mkdir -p ios/Frameworks
+          xcodebuild -create-xcframework \
+            -library target/aarch64-apple-ios/release/libsprout_mobile.a \
+            -library target/ios-sim-universal/release/libsprout_mobile.a \
+            -output ios/Frameworks/SproutCore.xcframework
+      - name: Generate Swift bindings
+        run: |
+          mkdir -p ios/Sources/SproutMobile
+          cargo run --release --bin uniffi-bindgen -- \
+            generate --library target/aarch64-apple-ios/release/libsprout_mobile.a \
+            --language swift --out-dir ios/Sources/SproutMobile
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sprout-mobile-ios-artifacts
+          path: |
+            ios/Frameworks/SproutCore.xcframework
+            ios/Sources/SproutMobile/*

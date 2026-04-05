@@ -18,7 +18,7 @@ use tokio::task::JoinHandle;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tracing::{debug, warn};
 
-use sprout_core::protocol::{parse_relay_message, OkResponse, RelayMessage};
+use crate::relay_protocol::{parse_relay_message, OkResponse, RelayMessage};
 
 use crate::auth::nip42::build_auth_event;
 use crate::converters::json_to_message;

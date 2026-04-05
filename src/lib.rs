@@ -19,6 +19,7 @@ pub mod error;
 mod runtime;
 /// Data transfer types exposed over FFI.
 pub mod types;
+mod relay_protocol;
 
 pub mod auth;
 /// REST API client surface.
