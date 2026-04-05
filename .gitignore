@@ -1,0 +1,16 @@
+/target/
+**/*.rs.bk
+# Android
+/android/.gradle/
+/android/.idea/
+/android/local.properties
+/android/build/
+/android/**/build/
+/android/**/libs/
+/android/**/generated/
+# iOS
+/ios/DerivedData/
+/ios/Build/
+*.xcuserdatad/
+*.xcworkspace/
+.DS_Store
