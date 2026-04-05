@@ -1,0 +1,128 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    outputs:
+      ios_path: ios/Frameworks/SproutCore.xcframework.zip
+      swift_path: ios/Sources/SproutMobile.zip
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+      - name: Build targets
+        run: |
+          cargo build --release --target aarch64-apple-ios
+          cargo build --release --target aarch64-apple-ios-sim
+          cargo build --release --target x86_64-apple-ios
+      - name: Create universal sim lib
+        run: |
+          mkdir -p target/ios-sim-universal/release
+          lipo -create \
+            target/aarch64-apple-ios-sim/release/libsprout_mobile.a \
+            target/x86_64-apple-ios/release/libsprout_mobile.a \
+            -output target/ios-sim-universal/release/libsprout_mobile.a
+      - name: Build XCFramework
+        run: |
+          rm -rf ios/Frameworks/SproutCore.xcframework
+          mkdir -p ios/Frameworks
+          xcodebuild -create-xcframework \
+            -library target/aarch64-apple-ios/release/libsprout_mobile.a \
+            -library target/ios-sim-universal/release/libsprout_mobile.a \
+            -output ios/Frameworks/SproutCore.xcframework
+      - name: Generate Swift bindings
+        run: |
+          mkdir -p ios/Sources/SproutMobile
+          cargo run --release --bin uniffi-bindgen -- \
+            generate --library target/aarch64-apple-ios/release/libsprout_mobile.a \
+            --language swift --out-dir ios/Sources/SproutMobile
+      - name: Zip artifacts
+        run: |
+          cd ios/Frameworks && zip -r SproutCore.xcframework.zip SproutCore.xcframework && cd -
+          cd ios/Sources && zip -r SproutMobile.zip SproutMobile && cd -
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-artifacts
+          path: |
+            ios/Frameworks/SproutCore.xcframework.zip
+            ios/Sources/SproutMobile.zip
+
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - run: cargo install cargo-ndk
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android platforms, build-tools, and NDK
+        run: |
+          sdkmanager --install "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;25.1.8937393"
+      - name: Build Rust libs via cargo-ndk
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/25.1.8937393
+        run: |
+          cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -t x86 -o android/sproutmobile/src/main/jniLibs build --release
+      - name: Generate Kotlin bindings via UniFFI
+        run: |
+          mkdir -p android/sproutmobile/src/main/java
+          cargo run --release --bin uniffi-bindgen -- \
+            generate --library target/aarch64-linux-android/release/libsprout_mobile.so \
+            --language kotlin --out-dir android/sproutmobile/src/main/java
+      - name: Assemble AAR
+        run: ./android/gradlew :sproutmobile:assembleDebug
+      - name: Zip artifacts
+        run: |
+          cd android/sproutmobile/build/outputs/aar && zip -r sproutmobile-debug.aar.zip *.aar && cd -
+          cd android/sproutmobile/src/main && zip -r kotlin-bindings.zip java && cd -
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-artifacts
+          path: |
+            android/sproutmobile/build/outputs/aar/*.aar
+            android/sproutmobile/src/main/kotlin-bindings.zip
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: [build-ios, build-android]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ios-artifacts
+          path: dist/ios
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-artifacts
+          path: dist/android
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          files: |
+            dist/ios/SproutCore.xcframework.zip
+            dist/ios/SproutMobile.zip
+            dist/android/*.aar
+            dist/android/kotlin-bindings.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
