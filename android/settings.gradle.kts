@@ -18,3 +18,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "SproutMobileAndroid"
 include(":sproutmobile")
+include(":app")
