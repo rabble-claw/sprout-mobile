@@ -1,0 +1,17 @@
+{
+  "bootstrap-sha": "HEAD",
+  "packages": {
+    ".": {
+      "release-type": "rust",
+      "bump-minor-pre-major": true,
+      "versioning": "default",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "Cargo.toml",
+          "jsonpath": "$.package.version"
+        }
+      ]
+    }
+  }
+}
