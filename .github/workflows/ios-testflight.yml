@@ -1,0 +1,92 @@
+name: iOS TestFlight (Sample App)
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: 'Upload to TestFlight (requires secrets)'
+        required: false
+        default: 'false'
+  push:
+    branches: [ main ]
+
+jobs:
+  build-ios-app:
+    runs-on: macos-latest
+    env:
+      APP_BUNDLE_ID: ${{ vars.APP_BUNDLE_ID || 'video.divine.sprout.mobile.sample' }}
+      DEVELOPMENT_TEAM: ${{ vars.APPLE_TEAM_ID || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Add iOS targets
+        run: |
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+      - name: Build XCFramework + Swift bindings
+        run: |
+          cargo build --release --target aarch64-apple-ios
+          cargo build --release --target aarch64-apple-ios-sim
+          cargo build --release --target x86_64-apple-ios
+          mkdir -p target/ios-sim-universal/release
+          lipo -create \
+            target/aarch64-apple-ios-sim/release/libsprout_mobile.a \
+            target/x86_64-apple-ios/release/libsprout_mobile.a \
+            -output target/ios-sim-universal/release/libsprout_mobile.a
+          rm -rf ios/Frameworks/SproutCore.xcframework
+          mkdir -p ios/Frameworks
+          xcodebuild -create-xcframework \
+            -library target/aarch64-apple-ios/release/libsprout_mobile.a \
+            -library target/ios-sim-universal/release/libsprout_mobile.a \
+            -output ios/Frameworks/SproutCore.xcframework
+          mkdir -p ios/Sources/SproutMobile
+          cargo run --release --bin uniffi-bindgen -- \
+            generate --library target/aarch64-apple-ios/release/libsprout_mobile.a \
+            --language swift --out-dir ios/Sources/SproutMobile
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: |
+          cd ios/App
+          xcodegen generate
+      - name: Build archive (unsigned)
+        run: |
+          set -e
+          mkdir -p build
+          xcodebuild -project ios/App/SproutMobileSample.xcodeproj \
+            -scheme SproutMobileSample -configuration Release \
+            -archivePath build/SproutMobileSample.xcarchive archive \
+            CODE_SIGNING_ALLOWED=NO
+      - name: Export IPA (ad-hoc unsigned)
+        run: |
+          set -e
+          cat > ExportOptions.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>development</string>
+            <key>manifest</key>
+            <dict/>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath build/SproutMobileSample.xcarchive -exportOptionsPlist ExportOptions.plist -exportPath build/export || true
+      - name: Upload IPA artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-sample-ipa
+          path: build/export/*.ipa
+      - name: Upload to TestFlight (optional)
+        if: ${{ github.event.inputs.upload == 'true' && secrets.APP_STORE_CONNECT_API_KEY && secrets.APP_STORE_CONNECT_API_ISSUER }}
+        uses: apple-actions/upload-testflight-build@v1
+        with:
+          app-path: build/export/*.ipa
+          issuer-id: ${{ secrets.APP_STORE_CONNECT_API_ISSUER }}
+          api-key-id: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          api-private-key: ${{ secrets.APP_STORE_CONNECT_API_KEY }}

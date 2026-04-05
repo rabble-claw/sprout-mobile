@@ -1,0 +1,38 @@
+name: SproutMobileSample
+options:
+  deploymentTarget:
+    iOS: 16.0
+settings:
+  base:
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: $DEVELOPMENT_TEAM
+    PRODUCT_BUNDLE_IDENTIFIER: $APP_BUNDLE_ID
+packages: {}
+schemes:
+  SproutMobileSample:
+    build:
+      targets:
+        SproutMobileSample: all
+    run:
+      config: Release
+    archive:
+      config: Release
+targets:
+  SproutMobileSample:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: ../Sources/SproutMobile
+    settings:
+      base:
+        INFOPLIST_FILE: Sources/Info.plist
+    info:
+      path: Sources/Info.plist
+      properties:
+        UILaunchScreen:
+          UIColorName: White
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+    dependencies:
+      - framework: ../Frameworks/SproutCore.xcframework
